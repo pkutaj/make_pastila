@@ -25,16 +25,26 @@ npm install -g @mermaid-js/mermaid-cli
 
 ### 2. Install pastila client
 
-You need one of:
+Two options depending on where you want to upload:
 
-| Binary | Uploads to | Auth | Source |
-|--------|-----------|------|--------|
-| `chpst` | pastila.clickhouse.com | cookie file `~/.pastila.cookie` | Internal ClickHouse tool |
-| `pastila` | pastila.nl | none (or encryption key) | https://github.com/nicksherron/pastila |
+| Binary | Uploads to | Flag | Install |
+|--------|-----------|------|---------|
+| `pastila` | pastila.nl | `-p` | `brew tap jkaflik/tap && brew install jkaflik/tap/pastila` |
+| `chpst` | pastila.clickhouse.com | `-c` | internal ClickHouse tool (same Go codebase, adds cookie auth) |
 
-Place the binary on your `$PATH`.
+**pastila** (public, no auth needed for `-plain` uploads):
 
-For `chpst`, get a cookie from https://pastila.clickhouse.com and save it:
+```bash
+brew tap jkaflik/tap
+brew install jkaflik/tap/pastila
+```
+
+Source: [jkaflik/pastila-cli](https://github.com/jkaflik/pastila-cli)
+Web UI: [ClickHouse/pastila](https://github.com/ClickHouse/pastila)
+
+**chpst** (ClickHouse internal, requires cookie):
+
+Get a cookie from https://pastila.clickhouse.com and save it:
 
 ```bash
 echo 'your-cookie-value' > ~/.pastila.cookie
@@ -85,11 +95,11 @@ cat notes.md | md2html -c
 
 ## Flags
 
-| Flag | Upload target |
-|------|---------------|
-| (none) | stdout (HTML) |
-| `-c` | pastila.clickhouse.com via `chpst` |
-| `-p` | pastila.nl via `pastila` |
+| Flag | Upload target | Binary used |
+|------|---------------|-------------|
+| (none) | stdout (HTML) | — |
+| `-c` | pastila.clickhouse.com | `chpst` |
+| `-p` | pastila.nl | `pastila` |
 
 ## No secrets
 
