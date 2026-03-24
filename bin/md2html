@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# md2html - Convert markdown (with mermaid) to static HTML
+# Usage: md2html file.md                    # HTML to stdout
+#        md2html file.md -c                 # upload to chpst (internal, .html)
+#        md2html file.md -p                 # upload to pastila.nl (.html)
+#        cat file.md | md2html              # read from stdin
+#        cat file.md | md2html -c           # stdin + chpst
+# Note: piping directly to pastila doesn't work (pastila has a stdin race
+#       condition). Use -p/-c flags instead.
+set -euo pipefail
+
+# Parse flags: last arg may be -p or -c
+upload=""
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    -p) upload="pastila" ;;
+    -c) upload="chpst" ;;
+    *)  args+=("$arg") ;;
+  esac
+done
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+# Read from file arg or stdin
+if [[ ${args[0]:-} && -f ${args[0]:-} ]]; then
+  input="${args[0]}"
+else
+  input="$tmpdir/input.md"
+  cat > "$input"
+fi
+
+cp "$input" "$tmpdir/work.md"
+work="$tmpdir/work.md"
+
+# Extract mermaid blocks, render to SVG, replace with inline images
+python3 - "$work" "$tmpdir" <<'PYEOF'
+import re, sys, subprocess, base64, os
+
+work = sys.argv[1]
+tmpdir = sys.argv[2]
+
+with open(work) as f:
+    txt = f.read()
+
+counter = 0
+def replace_mermaid(match):
+    global counter
+    counter += 1
+    mermaid_src = match.group(1)
+    infile = os.path.join(tmpdir, f"mermaid_{counter}.mmd")
+    outfile = os.path.join(tmpdir, f"mermaid_{counter}.svg")
+
+    with open(infile, "w") as f:
+        f.write(mermaid_src)
+
+    result = subprocess.run(
+        ["mmdc", "-i", infile, "-o", outfile, "-b", "transparent", "--quiet"],
+        capture_output=True, timeout=30
+    )
+
+    if result.returncode == 0 and os.path.exists(outfile):
+        with open(outfile, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f'<div class="mermaid-diagram"><img src="data:image/svg+xml;base64,{b64}" style="max-width:100%;"></div>'
+    else:
+        # fallback: keep as code block
+        return match.group(0)
+
+txt = re.sub(r'```mermaid\s*\n(.*?)\n```', replace_mermaid, txt, flags=re.DOTALL)
+
+with open(work, "w") as f:
+    f.write(txt)
+PYEOF
+
+# Write CSS to a temp file for pandoc
+css="$tmpdir/style.css"
+cat > "$css" <<'CSS'
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #24292e; }
+h1,h2,h3,h4 { border-bottom: 1px solid #eaecef; padding-bottom: .3em; }
+pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+code { background: #f6f8fa; padding: .2em .4em; border-radius: 3px; font-size: 85%; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+th { background: #f6f8fa; }
+tr:nth-child(2n) { background: #f6f8fa; }
+blockquote { border-left: 4px solid #dfe2e5; margin: 0; padding: 0 1em; color: #6a737d; }
+.mermaid-diagram { text-align: center; margin: 1.5em 0; }
+img { max-width: 100%; }
+CSS
+
+# Convert to self-contained HTML via pandoc, buffer to temp file
+out="$tmpdir/output.html"
+pandoc "$work" \
+  -f markdown \
+  -t html5 \
+  --standalone \
+  --self-contained \
+  --metadata title=" " \
+  --css "$css" \
+  -o "$out" \
+  2>/dev/null
+
+# Post-process: linkify URLs, fix reference-link line breaks, add anchor copy buttons
+python3 - "$out" <<'PYEOF'
+import re, sys
+
+with open(sys.argv[1]) as f:
+    html = f.read()
+
+# 1. Match bare URLs NOT already inside href="..." or >...</a>
+def linkify(m):
+    url = m.group(1)
+    return f'<a href="{url}">{url}</a>'
+
+html = re.sub(
+    r'(?<!=\")(?<!\">)(https?://[^\s<)\]\"&]+(?:&amp;[^\s<)\]\"&]+)*)',
+    linkify,
+    html
+)
+
+# 2. In paragraphs that contain reference-style links like [1] <a href=...>,
+#    insert <br> between consecutive references so each renders on its own line
+def fix_ref_links(m):
+    content = m.group(1)
+    # Split on boundaries between "] ... [" where a new reference starts
+    content = re.sub(r'(</a>)\s*(\[)', r'\1<br>\n\2', content)
+    return f'<p>{content}</p>'
+
+html = re.sub(
+    r'<p>(\s*\[\d+\].*?)</p>',
+    fix_ref_links,
+    html,
+    flags=re.DOTALL
+)
+
+# 3. Add anchor copy buttons next to headings
+def add_anchor_button(m):
+    tag = m.group(1)
+    attrs = m.group(2)
+    content = m.group(3)
+    close = m.group(4)
+    # Extract id from attrs if present
+    id_match = re.search(r'id="([^"]*)"', attrs)
+    if id_match:
+        anchor_id = id_match.group(1)
+        btn = (f' <span class="anchor-copy" data-anchor="{anchor_id}" '
+               f'title="Copy link to section" '
+               f'style="cursor:pointer;opacity:0.3;font-size:0.6em;vertical-align:middle;"'
+               f'>&#x1f517;</span>')
+        return f'<{tag}{attrs}>{content}{btn}</{close}>'
+    return m.group(0)
+
+html = re.sub(
+    r'<(h[1-4])([^>]*)>(.*?)</(h[1-4])>',
+    add_anchor_button,
+    html
+)
+
+# 4. Inject script for anchor copy behavior + hover effect
+anchor_script = """
+<script>
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('.anchor-copy');
+  if (!el) return;
+  var anchor = el.getAttribute('data-anchor');
+  var url = location.href.split('#')[0] + '#' + anchor;
+  navigator.clipboard.writeText(url).then(function() {
+    el.textContent = '\\u2705';
+    setTimeout(function() { el.textContent = '\\ud83d\\udd17'; }, 1500);
+  });
+});
+document.addEventListener('mouseover', function(e) {
+  var el = e.target.closest('.anchor-copy');
+  if (el) el.style.opacity = '1';
+});
+document.addEventListener('mouseout', function(e) {
+  var el = e.target.closest('.anchor-copy');
+  if (el) el.style.opacity = '0.3';
+});
+</script>
+"""
+html = html.replace('</body>', anchor_script + '</body>')
+
+with open(sys.argv[1], "w") as f:
+    f.write(html)
+PYEOF
+
+# Upload or output to stdout
+case "$upload" in
+  chpst)   cat "$out" | chpst plain | sed 's/$/.html/' ;;
+  pastila) cat "$out" | pastila -plain | sed 's/$/.html/' ;;
+
+  *)       cat "$out" ;;
+esac
