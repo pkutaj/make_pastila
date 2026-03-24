@@ -27,10 +27,26 @@ npm install -g @mermaid-js/mermaid-cli
 
 Two options depending on where you want to upload:
 
-| Binary | Uploads to | Flag | Install |
-|--------|-----------|------|---------|
-| `pastila` | pastila.nl | `-p` | `brew tap jkaflik/tap && brew install jkaflik/tap/pastila` |
-| `chpst` | pastila.clickhouse.com | `-c` | internal ClickHouse tool (same Go codebase, adds cookie auth) |
+| Binary | Uploads to | Flag | Source |
+|--------|-----------|------|--------|
+| `chpst` | pastila.clickhouse.com | `-c` | [ClickHouse/data-plane-application](https://github.com/ClickHouse/data-plane-application/tree/master/experiments/pastila) |
+| `pastila` | pastila.nl | `-p` | [jkaflik/pastila-cli](https://github.com/jkaflik/pastila-cli) |
+
+**chpst** (ClickHouse internal, requires cookie):
+
+```bash
+# Build from data-plane-application repo
+cd data-plane-application/experiments/pastila
+go build -o chpst .
+cp chpst ~/Tools/   # or anywhere on your $PATH
+```
+
+Get a cookie from https://pastila.clickhouse.com and save it:
+
+```bash
+echo 'your-cookie-value' > ~/.pastila.cookie
+chmod 600 ~/.pastila.cookie
+```
 
 **pastila** (public, no auth needed for `-plain` uploads):
 
@@ -39,17 +55,7 @@ brew tap jkaflik/tap
 brew install jkaflik/tap/pastila
 ```
 
-Source: [jkaflik/pastila-cli](https://github.com/jkaflik/pastila-cli)
-Web UI: [ClickHouse/pastila](https://github.com/ClickHouse/pastila)
-
-**chpst** (ClickHouse internal, requires cookie):
-
-Get a cookie from https://pastila.clickhouse.com and save it:
-
-```bash
-echo 'your-cookie-value' > ~/.pastila.cookie
-chmod 600 ~/.pastila.cookie
-```
+Web UI source: [ClickHouse/pastila](https://github.com/ClickHouse/pastila)
 
 ### 3. Install md2html
 
@@ -104,5 +110,5 @@ cat notes.md | md2html -c
 ## No secrets
 
 No credentials are embedded. Auth is handled by:
-- `chpst`: reads `~/.pastila.cookie` (user-specific)
+- `chpst`: reads `~/.pastila.cookie` or system keyring (user-specific)
 - `pastila`: no auth needed for `-plain` uploads
