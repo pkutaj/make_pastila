@@ -29,14 +29,13 @@ Two options depending on where you want to upload:
 
 | Binary | Uploads to | Flag | Source |
 |--------|-----------|------|--------|
-| `chpst` | pastila.clickhouse.com | `-c` | [ClickHouse/data-plane-application](https://github.com/ClickHouse/data-plane-application/tree/master/experiments/pastila) |
+| `chpst` | pastila.clickhouse.com | `-c` | internal ClickHouse repo (ask your team) |
 | `pastila` | pastila.nl | `-p` | [jkaflik/pastila-cli](https://github.com/jkaflik/pastila-cli) |
 
 **chpst** (ClickHouse internal, requires cookie):
 
 ```bash
-# Build from data-plane-application repo
-cd data-plane-application/experiments/pastila
+# Build from the internal repo — see experiments/pastila/
 go build -o chpst .
 cp chpst ~/Tools/   # or anywhere on your $PATH
 ```
